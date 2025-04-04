@@ -1,42 +1,14 @@
-# # main.py
-# from src.data_collector import DataCollector
-# from src.grok_analyzer import GrokAnalyzer
-# from src.utils import load_config, setup_logging
-
-# def run_door1(coin="Bitcoin"):
-#     logger = setup_logging()
-#     config = load_config("config.json")
-    
-#     # Step 1: Collect data
-#     collector = DataCollector(config)
-#     current_price = collector.get_current_price("bitcoin")
-#     news = collector.get_crypto_news(coin)
-#     events = collector.get_major_events()
-
-#     if current_price is None:
-#         logger.error("Failed to fetch current price. Exiting.")
-#         return
-
-#     # Step 2: Analyze with Grok
-#     analyzer = GrokAnalyzer(config)
-#     result = analyzer.analyze_trends(coin, current_price, news, events)
-
-#     # Step 3: Display results
-#     logger.info(f"Door I Results for {coin}:")
-#     logger.info(f"- Current Price: ${result['current_price']:,.2f}")
-#     logger.info(f"- Predicted Price Range: ${result['price_range'][0]:,.2f} - ${result['price_range'][1]:,.2f}")
-#     logger.info(f"- Pattern: {result['pattern']}")
-
-# if __name__ == "__main__":
-#     run_door1("Bitcoin")
-
 # main.py
+import numpy as np
+import tensorflow as tf
 from src.data_collector import DataCollector
 from src.grok_analyzer import GrokAnalyzer
-from lstm_predictor import LSTMPredictor
+from src.lstm_predictor import LSTMPredictor
 from src.utils import load_config, setup_logging
+import argparse
+from datetime import datetime, timedelta
 
-def run_door1(coin="Bitcoin"):
+def run_door1(coin="Bitcoin", timeframe="hourly"):
     logger = setup_logging()
     config = load_config("config.json")
     collector = DataCollector(config)
@@ -47,30 +19,59 @@ def run_door1(coin="Bitcoin"):
         logger.error("Failed to fetch current price. Exiting.")
         return None
     analyzer = GrokAnalyzer(config)
-    result = analyzer.analyze_trends(coin, current_price, news, events)
-    logger.info(f"Door I Results for {coin}:")
+    result = analyzer.analyze_trends(coin, current_price, news, events, timeframe)
+    horizon = (datetime.now() + (timedelta(hours=1) if timeframe == "hourly" else timedelta(days=1) if timeframe == "daily" else timedelta(days=30))).strftime('%Y-%m-%d %H:%M')
+    logger.info(f"Door I Target Range for {coin} ({timeframe} prediction, by {horizon}):")
     logger.info(f"- Current Price: ${result['current_price']:,.2f}")
-    logger.info(f"- Predicted Price Range: ${result['price_range'][0]:,.2f} - ${result['price_range'][1]:,.2f}")
+    logger.info(f"- Predicted Target Range: ${result['price_range'][0]:,.2f} - ${result['price_range'][1]:,.2f}")
     logger.info(f"- Pattern: {result['pattern']}")
     return result, collector
 
+def recommend_trade(current_price, target_range, stop_loss, pattern):
+    low, high = target_range
+    potential_gain = (high - current_price) / current_price * 100
+    potential_loss = (current_price - stop_loss) / current_price * 100 if stop_loss < current_price else 0
+    recommendation = (
+        f"Trading Recommendation ({pattern} pattern):\n"
+        f"- Current Price: ${current_price:,.2f}\n"
+        f"- Target Range: ${low:,.2f} - ${high:,.2f} (Potential Gain: {potential_gain:.2f}%)\n"
+        f"- Stop-Loss: ${stop_loss:,.2f} (Potential Loss: {potential_loss:.2f}%)\n"
+    )
+    if pattern == "Bullish":
+        recommendation += "- Action: Buy/Hold, tight stop-loss for protection."
+    elif pattern == "Bearish":
+        recommendation += "- Action: Consider selling/shorting, set stop-loss."
+    else:
+        recommendation += "- Action: Monitor, tight stop-loss for safety."
+    return recommendation
+
 if __name__ == "__main__":
-    door1_result, collector = run_door1("Bitcoin")
+    parser = argparse.ArgumentParser(description="Crypto price prediction with timeframe")
+    parser.add_argument("--timeframe", type=str, default="hourly", choices=["hourly", "daily", "monthly"], help="Prediction timeframe")
+    args = parser.parse_args()
+
+    np.random.seed(42)
+    tf.random.set_seed(42)
+    door1_result, collector = run_door1("Bitcoin", args.timeframe)
     if door1_result:
-        # Fetch historical data
-        prices, volumes = collector.get_historical_data("bitcoin")
+        periods = 60 if args.timeframe == "hourly" else 90 if args.timeframe == "daily" else 24
+        prices, volumes = collector.get_historical_data("bitcoin", args.timeframe, periods)
         if prices and volumes:
-            # Dummy sentiments (replace with real analysis if available)
-            sentiments = [0.5] * len(prices)  # Assume neutral/bullish
-            lstm = LSTMPredictor()
+            sentiments = [0.5] * len(prices)
+            lstm = LSTMPredictor(args.timeframe)
             lstm.train(prices, volumes, sentiments)
-            final_price = lstm.predict(
+            stop_loss = lstm.predict(
                 door1_result["current_price"],
-                13000,  # Placeholder volume
-                0.5 if door1_result["pattern"] == "Bullish" else -0.5,
+                13000,
+                0.5 if door1_result["pattern"] == "Bullish" else -0.5 if door1_result["pattern"] == "Bearish" else 0,
                 door1_result["price_range"],
                 door1_result["pattern"]
             )
-            print(f"Door II Final Predicted Price: ${final_price:,.2f}")
         else:
-            print("Failed to fetch historical data for Door II")
+            # Fallback stop-loss: 0.5% below current price
+            print("Warning: Using fallback stop-loss due to CoinGecko API failure")
+            stop_loss = door1_result["current_price"] * 0.995
+        print(f"Door II Stop-Loss Price ({args.timeframe}): ${stop_loss:,.2f}")
+        print(recommend_trade(door1_result["current_price"], door1_result["price_range"], stop_loss, door1_result["pattern"]))
+    else:
+        print("Failed to run Door I")
