@@ -8,15 +8,15 @@ from src.utils import load_config, setup_logging
 import argparse
 from datetime import datetime, timedelta
 
-def run_door1(coin="Bitcoin", timeframe="hourly"):
+def run_door1(coin="Bitcoin", coin_id="bitcoin", timeframe="hourly"):
     logger = setup_logging()
     config = load_config("config.json")
     collector = DataCollector(config)
-    current_price = collector.get_current_price("bitcoin")
+    current_price = collector.get_current_price(coin_id)
     news = collector.get_crypto_news(coin)
-    events = collector.get_major_events()
+    events = collector.get_major_events(coin)
     if current_price is None:
-        logger.error("Failed to fetch current price. Exiting.")
+        logger.error(f"Failed to fetch current price for {coin}. Exiting.")
         return None
     analyzer = GrokAnalyzer(config)
     result = analyzer.analyze_trends(coin, current_price, news, events, timeframe)
@@ -24,7 +24,7 @@ def run_door1(coin="Bitcoin", timeframe="hourly"):
     logger.info(f"Door I Target Range for {coin} ({timeframe} prediction, by {horizon}):")
     logger.info(f"- Current Price: ${result['current_price']:,.2f}")
     logger.info(f"- Predicted Target Range: ${result['price_range'][0]:,.2f} - ${result['price_range'][1]:,.2f}")
-    logger.info(f"- Pattern: ${result['pattern']}")
+    logger.info(f"- Pattern: {result['pattern']}")
     return result, collector
 
 def recommend_trade(current_price, target_range, narrowed_range, pattern):
@@ -53,31 +53,41 @@ if __name__ == "__main__":
     parser.add_argument("--timeframe", type=str, default="hourly", choices=["hourly", "daily", "monthly"], help="Prediction timeframe")
     args = parser.parse_args()
 
+    coins = [
+        ("Bitcoin", "bitcoin"),
+        ("Ethereum", "ethereum"),
+        ("Binance Coin", "binancecoin"),
+        ("Cardano", "cardano"),
+        ("Solana", "solana")
+    ]
+
     np.random.seed(42)
     tf.random.set_seed(42)
-    door1_result, collector = run_door1("Bitcoin", args.timeframe)
-    if door1_result:
-        periods = 60 if args.timeframe == "hourly" else 90 if args.timeframe == "daily" else 24
-        prices, volumes = collector.get_historical_data("bitcoin", args.timeframe, periods)
-        if prices and volumes:
-            sentiments = [0.5] * len(prices)
-            lstm = LSTMPredictor(args.timeframe)
-            lstm.train(prices, volumes, sentiments)
-            narrow_low, narrow_high = lstm.predict(
-                door1_result["current_price"],
-                13000,
-                0.5 if door1_result["pattern"] == "Bullish" else -0.5 if door1_result["pattern"] == "Bearish" else 0,
-                door1_result["price_range"],
-                door1_result["pattern"]
-            )
+
+    for coin, coin_id in coins:
+        door1_result, collector = run_door1(coin, coin_id, args.timeframe)
+        if door1_result:
+            periods = 60 if args.timeframe == "hourly" else 90 if args.timeframe == "daily" else 24
+            prices, volumes = collector.get_historical_data(coin_id, args.timeframe, periods)
+            if prices and volumes:
+                sentiments = [0.5] * len(prices)
+                lstm = LSTMPredictor(args.timeframe)
+                lstm.train(prices, volumes, sentiments)
+                narrow_low, narrow_high = lstm.predict(
+                    door1_result["current_price"],
+                    13000,
+                    0.5 if door1_result["pattern"] == "Bullish" else -0.5 if door1_result["pattern"] == "Bearish" else 0,
+                    door1_result["price_range"],
+                    door1_result["pattern"]
+                )
+            else:
+                print(f"Warning: Using fallback narrowing for {coin} due to CoinGecko API failure")
+                low, high = door1_result["price_range"]
+                mid = (low + high) / 2
+                narrow_low = max(low, mid - 200)
+                narrow_high = min(high, mid + 200)
+            print(f"Door II Narrowed Range for {coin} ({args.timeframe}): ${narrow_low:,.2f} - ${narrow_high:,.2f}")
+            print(recommend_trade(door1_result["current_price"], door1_result["price_range"], (narrow_low, narrow_high), door1_result["pattern"]))
+            print("-" * 50)
         else:
-            # Fallback: Narrow Door I range by 40% (±$200)
-            print("Warning: Using fallback narrowing due to CoinGecko API failure")
-            low, high = door1_result["price_range"]
-            mid = (low + high) / 2
-            narrow_low = max(low, mid - 200)
-            narrow_high = min(high, mid + 200)
-        print(f"Door II Narrowed Range ({args.timeframe}): ${narrow_low:,.2f} - ${narrow_high:,.2f}")
-        print(recommend_trade(door1_result["current_price"], door1_result["price_range"], (narrow_low, narrow_high), door1_result["pattern"]))
-    else:
-        print("Failed to run Door I")
+            print(f"Failed to run Door I for {coin}")

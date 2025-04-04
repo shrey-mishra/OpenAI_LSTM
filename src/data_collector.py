@@ -8,17 +8,17 @@ class DataCollector:
         self.config = config
         self.headers = {"x-cg-api-key": self.config.get("coingecko_api_key", "")} if self.config.get("coingecko_api_key") else {}
 
-    def get_current_price(self, coin_id="bitcoin"):
+    def get_current_price(self, coin_id):
         url = f"{self.config['coingecko_api_url']}?ids={coin_id}&vs_currencies=usd"
         try:
             response = requests.get(url, headers=self.headers, timeout=10)
             response.raise_for_status()
             return response.json()[coin_id]["usd"]
         except requests.RequestException as e:
-            print(f"Error fetching price: {e}")
+            print(f"Error fetching price for {coin_id}: {e}")
             return None
 
-    def get_crypto_news(self, query="Bitcoin"):
+    def get_crypto_news(self, query):
         url = f"{self.config['newsapi_url']}?q={query}&from={datetime.now().date()}&sortBy=publishedAt&apiKey={self.config['newsapi_key']}"
         try:
             response = requests.get(url, timeout=10)
@@ -26,16 +26,20 @@ class DataCollector:
             articles = response.json()["articles"][:5]
             return [f"{a['title']}: {a['description']}" for a in articles]
         except requests.RequestException as e:
-            print(f"Error fetching news: {e}")
+            print(f"Error fetching news for {query}: {e}")
             return []
 
-    def get_major_events(self):
-        return [
-            "Elon Musk tweet: BTC is the future, April 2, 2025",
-            "VanEck ETF filing news, March 31, 2025"
-        ]
+    def get_major_events(self, coin):
+        # Static events, could be expanded per coin
+        return {
+            "bitcoin": ["Elon Musk tweet: BTC is the future, April 2, 2025", "VanEck ETF filing news, March 31, 2025"],
+            "ethereum": ["Ethereum upgrade news, March 2025", "DeFi adoption spike, April 1, 2025"],
+            "binancecoin": ["Binance expansion news, March 2025", "BNB staking update, April 3, 2025"],
+            "cardano": ["Cardano smart contract milestone, March 2025", "ADA ecosystem growth, April 2, 2025"],
+            "solana": ["Solana scalability upgrade, March 2025", "SOL DeFi surge, April 1, 2025"]
+        }.get(coin.lower(), [])
 
-    def get_historical_data(self, coin_id="bitcoin", timeframe="daily", periods=60):
+    def get_historical_data(self, coin_id, timeframe="daily", periods=60):
         if timeframe == "hourly":
             days = periods / 24
             url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days={days}&interval=hourly"
@@ -46,7 +50,6 @@ class DataCollector:
             url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days={days}&interval=daily"
         else:
             raise ValueError("Timeframe must be 'hourly', 'daily', or 'monthly'")
-        
         try:
             response = requests.get(url, headers=self.headers, timeout=10)
             response.raise_for_status()
@@ -55,5 +58,5 @@ class DataCollector:
             volumes = [v[1] for v in data["total_volumes"][-periods:]]
             return prices, volumes
         except requests.RequestException as e:
-            print(f"Error fetching historical data: {e}")
+            print(f"Error fetching historical data for {coin_id}: {e}")
             return None, None
