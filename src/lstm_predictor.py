@@ -38,7 +38,7 @@ class LSTMPredictor:
         y = np.array(y)
         if X.shape[0] == 0:
             raise ValueError("No training samples generated—data too short")
-        self.model.fit(X, y, epochs=50, batch_size=32, verbose=1)
+        self.model.fit(X, y, epochs=10, batch_size=32, verbose=1)
         self.is_trained = True
         self.last_data = scaled_data[-self.window:]
         logging.info(f"LSTM model trained for {self.timeframe} timeframe")
@@ -52,11 +52,7 @@ class LSTMPredictor:
         pred_scaled = self.model.predict(X, verbose=0)
         pred_price = self.scaler.inverse_transform([[pred_scaled[0][0], 0, 0]])[0][0]
         low, high = door1_range
-        # Stop-loss logic: cap at 0.5% below current price
-        max_loss = current_price * 0.995  # 0.5% below
-        if pred_price >= current_price:
-            stop_loss = max_loss  # If above, use 0.5% below
-        else:
-            stop_loss = max(pred_price, low * 0.95)  # Use LSTM if below, but not too far
-            stop_loss = min(stop_loss, max_loss)  # Cap at 0.5% loss
-        return stop_loss
+        # Narrow the range: ±$200 around predicted price, within Door I bounds
+        narrow_low = max(low, pred_price - 200)
+        narrow_high = min(high, pred_price + 200)
+        return narrow_low, narrow_high

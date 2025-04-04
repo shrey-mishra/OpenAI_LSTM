@@ -24,25 +24,28 @@ def run_door1(coin="Bitcoin", timeframe="hourly"):
     logger.info(f"Door I Target Range for {coin} ({timeframe} prediction, by {horizon}):")
     logger.info(f"- Current Price: ${result['current_price']:,.2f}")
     logger.info(f"- Predicted Target Range: ${result['price_range'][0]:,.2f} - ${result['price_range'][1]:,.2f}")
-    logger.info(f"- Pattern: {result['pattern']}")
+    logger.info(f"- Pattern: ${result['pattern']}")
     return result, collector
 
-def recommend_trade(current_price, target_range, stop_loss, pattern):
+def recommend_trade(current_price, target_range, narrowed_range, pattern):
     low, high = target_range
-    potential_gain = (high - current_price) / current_price * 100
-    potential_loss = (current_price - stop_loss) / current_price * 100 if stop_loss < current_price else 0
+    narrow_low, narrow_high = narrowed_range
+    potential_gain = (narrow_high - current_price) / current_price * 100
+    potential_loss = (current_price - narrow_low) / current_price * 100 if narrow_low < current_price else 0
     recommendation = (
         f"Trading Recommendation ({pattern} pattern):\n"
         f"- Current Price: ${current_price:,.2f}\n"
-        f"- Target Range: ${low:,.2f} - ${high:,.2f} (Potential Gain: {potential_gain:.2f}%)\n"
-        f"- Stop-Loss: ${stop_loss:,.2f} (Potential Loss: {potential_loss:.2f}%)\n"
+        f"- Door I Range: ${low:,.2f} - ${high:,.2f}\n"
+        f"- Narrowed Range (Door II): ${narrow_low:,.2f} - ${narrow_high:,.2f}\n"
+        f"- Potential Gain: {potential_gain:.2f}%\n"
+        f"- Potential Loss: {potential_loss:.2f}%\n"
     )
     if pattern == "Bullish":
-        recommendation += "- Action: Buy/Hold, tight stop-loss for protection."
+        recommendation += "- Action: Buy/Hold within narrowed range."
     elif pattern == "Bearish":
-        recommendation += "- Action: Consider selling/shorting, set stop-loss."
+        recommendation += "- Action: Consider selling/shorting within narrowed range."
     else:
-        recommendation += "- Action: Monitor, tight stop-loss for safety."
+        recommendation += "- Action: Monitor within narrowed range."
     return recommendation
 
 if __name__ == "__main__":
@@ -60,7 +63,7 @@ if __name__ == "__main__":
             sentiments = [0.5] * len(prices)
             lstm = LSTMPredictor(args.timeframe)
             lstm.train(prices, volumes, sentiments)
-            stop_loss = lstm.predict(
+            narrow_low, narrow_high = lstm.predict(
                 door1_result["current_price"],
                 13000,
                 0.5 if door1_result["pattern"] == "Bullish" else -0.5 if door1_result["pattern"] == "Bearish" else 0,
@@ -68,10 +71,13 @@ if __name__ == "__main__":
                 door1_result["pattern"]
             )
         else:
-            # Fallback stop-loss: 0.5% below current price
-            print("Warning: Using fallback stop-loss due to CoinGecko API failure")
-            stop_loss = door1_result["current_price"] * 0.995
-        print(f"Door II Stop-Loss Price ({args.timeframe}): ${stop_loss:,.2f}")
-        print(recommend_trade(door1_result["current_price"], door1_result["price_range"], stop_loss, door1_result["pattern"]))
+            # Fallback: Narrow Door I range by 40% (±$200)
+            print("Warning: Using fallback narrowing due to CoinGecko API failure")
+            low, high = door1_result["price_range"]
+            mid = (low + high) / 2
+            narrow_low = max(low, mid - 200)
+            narrow_high = min(high, mid + 200)
+        print(f"Door II Narrowed Range ({args.timeframe}): ${narrow_low:,.2f} - ${narrow_high:,.2f}")
+        print(recommend_trade(door1_result["current_price"], door1_result["price_range"], (narrow_low, narrow_high), door1_result["pattern"]))
     else:
         print("Failed to run Door I")
