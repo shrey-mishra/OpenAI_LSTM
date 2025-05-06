@@ -1,57 +1,143 @@
 # main.py
-import numpy as np
-import tensorflow as tf
-from src.data_collector import DataCollector
-from src.grok_analyzer import GrokAnalyzer
-from src.lstm_predictor import LSTMPredictor
-from src.utils import load_config, setup_logging
 import argparse
 from datetime import datetime, timedelta
+import os
+import psycopg2
+from dotenv import load_dotenv
+from src.data_collector import DataCollector
+from src.utils import load_config, setup_logging
 
-def run_door1(coin="Bitcoin", coin_id="bitcoin", timeframe="hourly"):
+# Load environment variables
+load_dotenv()
+
+# Initialize PostgreSQL database
+def init_db(database_url):
+    try:
+        conn = psycopg2.connect(database_url)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS price_predictions (
+                id SERIAL PRIMARY KEY,
+                coin TEXT NOT NULL,
+                coin_id TEXT NOT NULL,
+                current_price DOUBLE PRECISION NOT NULL,
+                predicted_price_low DOUBLE PRECISION NOT NULL,
+                predicted_price_high DOUBLE PRECISION NOT NULL,
+                market_pattern TEXT NOT NULL,
+                potential_gain_percent DOUBLE PRECISION NOT NULL,
+                potential_loss_percent DOUBLE PRECISION NOT NULL,
+                timeframe TEXT NOT NULL,
+                horizon TEXT NOT NULL,
+                recorded_at TIMESTAMP NOT NULL
+            )
+        """)
+        conn.commit()
+        return conn
+    except Exception as e:
+        print(f"Failed to connect to database or create table: {str(e)}")
+        raise
+
+def store_prediction(conn, result):
+    try:
+        cursor = conn.cursor()
+        recorded_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute("""
+            INSERT INTO price_predictions (
+                coin, coin_id, current_price, predicted_price_low, predicted_price_high,
+                market_pattern, potential_gain_percent, potential_loss_percent,
+                timeframe, horizon, recorded_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            result["coin"],
+            result["coin_id"],
+            result["current_price"],
+            result["predicted_price_range"][0],
+            result["predicted_price_range"][1],
+            result["market_pattern"],
+            result["potential_gain_percent"],
+            result["potential_loss_percent"],
+            result["timeframe"],
+            result["horizon"],
+            recorded_at
+        ))
+        conn.commit()
+    except Exception as e:
+        print(f"Failed to store prediction: {str(e)}")
+        raise
+
+def predict_price(coin="Bitcoin", coin_id="bitcoin", timeframe="hourly"):
     logger = setup_logging()
     config = load_config("config.json")
     collector = DataCollector(config)
-    current_price = collector.get_current_price(coin_id)
-    news = collector.get_crypto_news(coin)
-    events = collector.get_major_events(coin)
-    if current_price is None:
-        logger.error(f"Failed to fetch current price for {coin}. Exiting.")
+    
+    # Fetch current price and 24-hour price change percentage
+    try:
+        current_price, price_change_percent = collector.get_current_price_and_trend(coin_id)
+    except Exception as e:
+        logger.error(f"Failed to fetch price data for {coin}: {str(e)}")
         return None
-    analyzer = GrokAnalyzer(config)
-    result = analyzer.analyze_trends(coin, current_price, news, events, timeframe)
-    horizon = (datetime.now() + (timedelta(hours=1) if timeframe == "hourly" else timedelta(days=1) if timeframe == "daily" else timedelta(days=30))).strftime('%Y-%m-%d %H:%M')
-    logger.info(f"Door I Target Range for {coin} ({timeframe} prediction, by {horizon}):")
-    logger.info(f"- Current Price: ${result['current_price']:,.2f}")
-    logger.info(f"- Predicted Target Range: ${result['price_range'][0]:,.2f} - ${result['price_range'][1]:,.2f}")
-    logger.info(f"- Pattern: {result['pattern']}")
-    return result, collector
 
-def recommend_trade(current_price, target_range, narrowed_range, pattern):
-    low, high = target_range
-    narrow_low, narrow_high = narrowed_range
-    potential_gain = (narrow_high - current_price) / current_price * 100
-    potential_loss = (current_price - narrow_low) / current_price * 100 if narrow_low < current_price else 0
-    recommendation = (
-        f"Trading Recommendation ({pattern} pattern):\n"
-        f"- Current Price: ${current_price:,.2f}\n"
-        f"- Door I Range: ${low:,.2f} - ${high:,.2f}\n"
-        f"- Narrowed Range (Door II): ${narrow_low:,.2f} - ${narrow_high:,.2f}\n"
-        f"- Potential Gain: {potential_gain:.2f}%\n"
-        f"- Potential Loss: {potential_loss:.2f}%\n"
-    )
-    if pattern == "Bullish":
-        recommendation += "- Action: Buy/Hold within narrowed range."
-    elif pattern == "Bearish":
-        recommendation += "- Action: Consider selling/shorting within narrowed range."
+    # Determine market pattern based on 24-hour price change
+    if price_change_percent > 1:
+        pattern = "Bullish"
+        # Slightly adjust prediction range for Bullish pattern (more upside)
+        predicted_low = current_price * 0.99  # -1%
+        predicted_high = current_price * 1.03  # +3%
+    elif price_change_percent < -1:
+        pattern = "Bearish"
+        # Slightly adjust prediction range for Bearish pattern (more downside)
+        predicted_low = current_price * 0.97  # -3%
+        predicted_high = current_price * 1.01  # +1%
     else:
-        recommendation += "- Action: Monitor within narrowed range."
-    return recommendation
+        pattern = "Mixed"
+        # Neutral prediction range
+        predicted_low = current_price * 0.98  # -2%
+        predicted_high = current_price * 1.02  # +2%
+
+    predicted_price_range = (predicted_low, predicted_high)
+    
+    # Calculate potential gain/loss
+    potential_gain = ((predicted_high - current_price) / current_price) * 100
+    potential_loss = ((current_price - predicted_low) / current_price) * 100
+    
+    # Format the result
+    horizon = (datetime.now() + (timedelta(hours=1) if timeframe == "hourly" else timedelta(days=1) if timeframe == "daily" else timedelta(days=30))).strftime('%Y-%m-%d %H:%M')
+    result = {
+        "coin": coin,
+        "coin_id": coin_id,
+        "current_price": current_price,
+        "predicted_price_range": predicted_price_range,
+        "market_pattern": pattern,
+        "timeframe": timeframe,
+        "horizon": horizon,
+        "potential_gain_percent": potential_gain,
+        "potential_loss_percent": potential_loss
+    }
+    
+    # Log the result
+    logger.info(f"Price Prediction for {coin} ({timeframe} prediction, by {horizon}):")
+    logger.info(f"- Current Price: ${current_price:,.2f}")
+    logger.info(f"- Predicted Price Range: ${predicted_price_range[0]:,.2f} - ${predicted_price_range[1]:,.2f}")
+    logger.info(f"- Market Pattern: {pattern}")
+    logger.info(f"- Potential Gain: {potential_gain:.2f}%")
+    logger.info(f"- Potential Loss: {potential_loss:.2f}%")
+    
+    return result
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Crypto price prediction with timeframe")
     parser.add_argument("--timeframe", type=str, default="hourly", choices=["hourly", "daily", "monthly"], help="Prediction timeframe")
     args = parser.parse_args()
+
+    # Load config and get database URL
+    config = load_config("config.json")
+    database_url = config.get("database_url")
+    if not database_url:
+        print("Error: database_url not found in config.json")
+        exit(1)
+
+    # Initialize database
+    conn = init_db(database_url)
 
     coins = [
         ("Bitcoin", "bitcoin"),
@@ -61,33 +147,19 @@ if __name__ == "__main__":
         ("Solana", "solana")
     ]
 
-    np.random.seed(42)
-    tf.random.set_seed(42)
-
     for coin, coin_id in coins:
-        door1_result, collector = run_door1(coin, coin_id, args.timeframe)
-        if door1_result:
-            periods = 60 if args.timeframe == "hourly" else 90 if args.timeframe == "daily" else 24
-            prices, volumes = collector.get_historical_data(coin_id, args.timeframe, periods)
-            if prices and volumes:
-                sentiments = [0.5] * len(prices)
-                lstm = LSTMPredictor(args.timeframe)
-                lstm.train(prices, volumes, sentiments)
-                narrow_low, narrow_high = lstm.predict(
-                    door1_result["current_price"],
-                    13000,
-                    0.5 if door1_result["pattern"] == "Bullish" else -0.5 if door1_result["pattern"] == "Bearish" else 0,
-                    door1_result["price_range"],
-                    door1_result["pattern"]
-                )
-            else:
-                print(f"Warning: Using fallback narrowing for {coin} due to CoinGecko API failure")
-                low, high = door1_result["price_range"]
-                mid = (low + high) / 2
-                narrow_low = max(low, mid - 200)
-                narrow_high = min(high, mid + 200)
-            print(f"Door II Narrowed Range for {coin} ({args.timeframe}): ${narrow_low:,.2f} - ${narrow_high:,.2f}")
-            print(recommend_trade(door1_result["current_price"], door1_result["price_range"], (narrow_low, narrow_high), door1_result["pattern"]))
+        result = predict_price(coin, coin_id, args.timeframe)
+        if result:
+            # Store the prediction in the database
+            store_prediction(conn, result)
+            # Print the prediction
+            print(f"Price Prediction for {coin} ({args.timeframe}):")
+            print(f"- Current Price: ${result['current_price']:,.2f}")
+            print(f"- Predicted Price Range: ${result['predicted_price_range'][0]:,.2f} - ${result['predicted_price_range'][1]:,.2f}")
+            print(f"- Market Pattern: {result['market_pattern']}")
             print("-" * 50)
         else:
-            print(f"Failed to run Door I for {coin}")
+            print(f"Failed to predict price for {coin}")
+
+    # Close the database connection
+    conn.close()

@@ -1,0 +1,88 @@
+openapi: 3.0.0
+info:
+  title: Crypto Trading API
+  version: 1.0.0
+paths:
+  /api/predict:
+    post:
+      summary: Predicts cryptocurrency prices
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                symbol:
+                  type: string
+                  description: The cryptocurrency symbol (e.g., BTC, ETH, ALL)
+                timeframe:
+                  type: string
+                  description: The timeframe for the prediction (e.g., hourly, daily)
+      responses:
+        '200':
+          description: Successful prediction
+        '400':
+          description: Invalid symbol
+        '500':
+          description: Prediction error
+  /api/predictions:
+    get:
+      summary: Retrieves the latest price predictions from the database
+      responses:
+        '200':
+          description: Successful retrieval of predictions
+        '500':
+          description: Database query error
+  /api/trade:
+    post:
+      summary: Executes a trade on Binance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                symbol:
+                  type: string
+                  description: The trading symbol (e.g., BTCUSDT)
+                quantity:
+                  type: number
+                  description: The quantity to trade
+                side:
+                  type: string
+                  description: The side of the trade (BUY or SELL)
+                api_key:
+                  type: string
+                  description: Your Binance API key
+                secret_key:
+                  type: string
+                  description: Your Binance secret key
+      responses:
+        '200':
+          description: Successful trade execution
+        '400':
+          description: Missing required fields or invalid side
+        '500':
+          description: Trade execution error
+  /api/chat:
+    post:
+      summary: Provides a chatbot interface for market news and trade suggestions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  description: The user's message
+      responses:
+        '200':
+          description: Successful chat response
+        '400':
+          description: Invalid or missing message
+        '500':
+          description: Error processing request
