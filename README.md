@@ -1,77 +1,62 @@
-# Crypto Trading API Documentation
+# OpenAI_LSTM
 
-## /api/predict
+## Project Description
 
-**POST**
+This project is a cryptocurrency trading API that uses OpenAI and LSTM models to predict cryptocurrency prices and provide trade suggestions.
 
-Predicts cryptocurrency prices.
+## Features
 
-**Request Body:**
+*   Predicts cryptocurrency prices using OpenAI and LSTM models.
+*   Provides trade suggestions based on market trends.
+*   Executes trades on Binance.
+*   Provides a chatbot interface for market news and trade suggestions.
+*   Fetches market news from NewsAPI.
+*   Uses CoinGecko API to get cryptocurrency prices.
 
-```json
-{
-  "symbol": "string", // The cryptocurrency symbol (e.g., BTC, ETH, ALL)
-  "timeframe": "string"  // The timeframe for the prediction (e.g., hourly, daily)
-}
-```
+## API Endpoints
 
-**Responses:**
+*   `/api/predict`: Predicts cryptocurrency prices.
+*   `/api/predictions`: Retrieves the latest price predictions from the database.
+*   `/api/trade`: Executes a trade on Binance.
+*   `/api/chat`: Provides a chatbot interface for market news and trade suggestions.
 
--   200: Successful prediction
--   400: Invalid symbol
--   500: Prediction error
+See the `API_README.md` file for more details on the API endpoints.
 
-## /api/predictions
+## Setup Instructions
 
-**GET**
-
-Retrieves the latest price predictions from the database.
-
-**Responses:**
-
--   200: Successful retrieval of predictions
--   500: Database query error
-
-## /api/trade
-
-**POST**
-
-Executes a trade on Binance.
-
-**Request Body:**
+1.  Clone the repository.
+2.  Install the dependencies using `pip install -r requirements.txt`.
+3.  Create a `config.json` file with the following structure:
 
 ```json
 {
-  "symbol": "string",      // The trading symbol (e.g., BTCUSDT)
-  "quantity": "number",    // The quantity to trade
-  "side": "string",        // The side of the trade (BUY or SELL)
-  "api_key": "string",     // Your Binance API key
-  "secret_key": "string"   // Your Binance secret key
+    "xai_api_url": "https://api.x.ai/v1/chat/completions",
+    "xai_api_key": "AIzaSyCS8AhPLl96rvaWFPWUqppBxv8za0NQAZs",
+    "coingecko_api_url": "https://api.coingecko.com/api/v3/simple/price",
+    "newsapi_url": "https://newsapi.org/v2/everything",
+    "newsapi_key": "8f92bd1029c84772a3b2de989648bdf9",
+    "gemini_api_url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
+    "gemini_api_key": "AIzaSyBgWfLISJdswkmj7bGUweQDsPjK4juOxnA",
+    "openai_api_url": "https://api.openai.com/v1/chat/completions",
+    "openai_api_key": "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",
+    "coingecko_api_key": "CG-gm82WYZT7Jhy2HkDrgYpZRa9",
+    "database_url": "postgresql://postgres:shreym7478@localhost/postgres"
 }
 ```
 
-**Responses:**
+4.  Set the environment variables for the NewsAPI key and Binance API keys.
 
--   200: Successful trade execution
--   400: Missing required fields or invalid side
--   500: Trade execution error
+## Usage
 
-## /api/chat
+1.  Start the Flask application using `python app.py`.
+2.  Access the API endpoints using a tool like Postman or curl.
 
-**POST**
+## Starting the Flask Application
 
-Provides a chatbot interface for market news and trade suggestions.
+To start the flask application, run the following command:
 
-**Request Body:**
-
-```json
-{
-  "message": "string"  // The user's message
-}
+```
+python app.py
 ```
 
-**Responses:**
-
--   200: Successful chat response
--   400: Invalid or missing message
--   500: Error processing request
+The application will run in debug mode on port 5000.
