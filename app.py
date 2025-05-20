@@ -45,6 +45,10 @@ if not openai_api_key:
 # Initialize OpenAI client
 openai_client = OpenAI(api_key=openai_api_key)
 
+@app.route("/", methods=["GET"])
+def init():
+    return "Hii welcome", 200
+
 @app.route("/api/predict", methods=["POST"])
 def predict():
     data = request.get_json()
@@ -98,18 +102,18 @@ def predict():
                 return jsonify({"error": f"Failed to generate prediction for {coin} due to data fetching issues."}), 500
 
             response = {
-                "coin": result["coin"],
+                # "coin": result["coin"],
                 "symbol": symbol,
                 "current_price": result["current_price"],
-                "predicted_price_range": {
+                "predicted_price": {
                     "low": result["predicted_price_range"][0],
                     "high": result["predicted_price_range"][1]
                 },
-                "market_pattern": result["market_pattern"],
-                "timeframe": result["timeframe"],
-                "horizon": result["horizon"],
-                "potential_gain_percent": result["potential_gain_percent"],
-                "potential_loss_percent": result["potential_loss_percent"]
+                # "market_pattern": result["market_pattern"],
+                # "timeframe": result["timeframe"],
+                # "horizon": result["horizon"],
+                # "potential_gain_percent": result["potential_gain_percent"],
+                # "potential_loss_percent": result["potential_loss_percent"]
             }
             return jsonify(response)
     except Exception as e:
