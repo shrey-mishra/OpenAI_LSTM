@@ -71,18 +71,18 @@ def predict():
                 result = predict_price(coin, coin_id, timeframe)
                 if result:
                     predictions.append({
-                        "coin": result["coin"],
+                        # "coin": result["coin"],
                         "symbol": sym,
                         "current_price": result["current_price"],
                         "predicted_price_range": {
                             "low": result["predicted_price_range"][0],
                             "high": result["predicted_price_range"][1]
                         },
-                        "market_pattern": result["market_pattern"],
-                        "timeframe": result["timeframe"],
-                        "horizon": result["horizon"],
-                        "potential_gain_percent": result["potential_gain_percent"],
-                        "potential_loss_percent": result["potential_loss_percent"]
+                        # "market_pattern": result["market_pattern"],
+                        # "timeframe": result["timeframe"],
+                        # "horizon": result["horizon"],
+                        # "potential_gain_percent": result["potential_gain_percent"],
+                        # "potential_loss_percent": result["potential_loss_percent"]
                     })
                 else:
                     predictions.append({
