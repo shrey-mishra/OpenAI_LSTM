@@ -16,8 +16,8 @@ class GrokAnalyzer:
         self.url = self.config["openai_api_url"]
         logging.basicConfig(level=logging.INFO)
 
-    def analyze_trends(self, coin: str, current_price: float, news: list, events: list, timeframe: str = "daily") -> Optional[Dict]:
-        prompt = self._build_prompt(coin, current_price, news, events, timeframe)
+    def analyze_trends(self, coin: str, current_price: float, timeframe: str = "daily") -> Optional[Dict]:
+        prompt = self._build_prompt(coin, current_price, timeframe)
         payload = {
             "model": "gpt-3.5-turbo",
             "messages": [
@@ -34,11 +34,9 @@ class GrokAnalyzer:
             return self._parse_response(result)
         except requests.RequestException as e:
             logging.error(f"API Error: {e.response.text if e.response else e}")
-            return self._simulate_grok_response(coin, current_price, news, events, timeframe)
+            return self._simulate_grok_response(coin, current_price, timeframe)
 
-    def _build_prompt(self, coin: str, current_price: float, news: list, events: list, timeframe: str) -> str:
-        news_str = "\n- ".join(news)
-        events_str = "\n- ".join(events)
+    def _build_prompt(self, coin: str, current_price: float, timeframe: str) -> str:
         if timeframe == "hourly":
             horizon = (datetime.now() + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M')
             period = "next 1 hour"
@@ -57,8 +55,6 @@ class GrokAnalyzer:
         return (
             f"Analyze the following for {coin}:\n"
             f"- Current Price: ${current_price}\n"
-            f"- Trending News:\n- {news_str}\n"
-            f"- Major Events:\n- {events_str}\n"
             f"{range_instruction} for the {period} (by {horizon}). "
             "Output in this format (use ' - ' with spaces for the range):\n"
             "- Current Price: [value]\n"
@@ -92,9 +88,8 @@ class GrokAnalyzer:
                 result["pattern"] = line.split(": ")[1]
         return result
 
-    def _simulate_grok_response(self, coin: str, current_price: float, news: list, events: list, timeframe: str) -> Dict:
-        text = " ".join(news + events).lower()
-        sentiment = TextBlob(text).sentiment.polarity
+    def _simulate_grok_response(self, coin: str, current_price: float, timeframe: str) -> Dict:
+        sentiment = 0
         if sentiment > 0.2:
             pattern = "bullish"
             volatility = 0.01 if timeframe == "hourly" else 0.03 if timeframe == "monthly" else 0.02

@@ -15,13 +15,11 @@ def run_door1(coin="Bitcoin", coin_id="bitcoin", timeframe="hourly"):
     config = load_config("config.json")
     collector = DataCollector(config)
     current_price = collector.get_current_price(coin_id)
-    news = collector.get_crypto_news(coin)
-    events = collector.get_major_events(coin)
     if current_price is None:
         logger.error(f"Failed to fetch current price for {coin}. Using fallback price.")
         current_price = 82748 if coin_id == "bitcoin" else 1782.35 if coin_id == "ethereum" else 589.75 if coin_id == "binancecoin" else 0.636597 if coin_id == "cardano" else 150.0
     analyzer = GrokAnalyzer(config)
-    result = analyzer.analyze_trends(coin, current_price, news, events, timeframe)
+    result = analyzer.analyze_trends(coin, current_price, timeframe)
     horizon = (datetime.now() + (timedelta(hours=1) if timeframe == "hourly" else timedelta(days=1) if timeframe == "daily" else timedelta(days=30))).strftime('%Y-%m-%d %H:%M')
     logger.info(f"Door I Target Range for {coin} ({timeframe} prediction, by {horizon}):")
     logger.info(f"- Current Price: ${result['current_price']:,.2f}")
@@ -88,7 +86,7 @@ if __name__ == "__main__":
             door1_result, collector = run_door1(coin, coin_id, args.timeframe)
             if door1_result:
                 try:
-                    lstm = LSTMPredictor(coin_id, args.timeframe)
+                    lstm = LSTMPredictor(args.timeframe)
                     narrow_low, narrow_high = lstm.predict(
                         door1_result["current_price"],
                         13000,
@@ -122,5 +120,5 @@ if __name__ == "__main__":
                 )
             else:
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Failed to run Door I for {coin}")
-        print("Waiting 60 seconds for next fetch...")
-        time.sleep(60)
+        print("Waiting 300 seconds for next fetch...")
+        time.sleep(300)
