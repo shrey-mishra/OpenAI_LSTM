@@ -49,8 +49,12 @@ See the `API_README.md` file for more details on the API endpoints.
 ## Usage
 
 1.  Start the Flask application using `python app.py`.
+<<<<<<< HEAD
 2.  Run `main.py` as a cron job to predict prices and store them in the database.
 3.  Access the API endpoints using a tool like Postman or curl.
+=======
+2.  Access the API endpoints using a tool like Postman or curl.
+>>>>>>> 6460010eb74c28979031555a48bdfeec8476fbe9
 
 ## Starting the Flask Application
 
