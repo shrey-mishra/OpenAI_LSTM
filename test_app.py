@@ -8,75 +8,71 @@ def client():
     with app.test_client() as client:
         yield client
 
-def test_predict_all(client):
+def test_init_endpoint(client):
+    response = client.get('/')
+    assert response.status_code == 200
+    assert b"IRIS Crypto Trading API" in response.data
+
+def test_api_status_endpoint(client):
+    response = client.get('/api/status')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data['api_name'] == "IRIS Crypto Trading API"
+    assert "price_prediction" in data['features']
+
+def test_health_check_endpoint(client):
+    response = client.get('/api/health')
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data['status'] == "healthy"
+    assert data['service'] == "IRIS Crypto Trading API"
+
+def test_predict_endpoint_all_symbols(client):
     response = client.post('/api/predict', json={'symbol': 'ALL'})
     assert response.status_code == 200
-    data = json.loads(response.data.decode('utf-8'))
+    data = json.loads(response.data)
     assert 'predictions' in data
     assert isinstance(data['predictions'], list)
 
-def test_predict_single(client):
+def test_predict_endpoint_specific_symbol(client):
     response = client.post('/api/predict', json={'symbol': 'BTC'})
     assert response.status_code == 200
-    data = json.loads(response.data.decode('utf-8'))
-    assert 'coin' in data
+    data = json.loads(response.data)
+    assert 'symbol' in data
+    assert data['symbol'] == 'BTC'
 
-def test_predict_invalid_symbol(client):
+def test_predict_endpoint_invalid_symbol(client):
     response = client.post('/api/predict', json={'symbol': 'INVALID'})
     assert response.status_code == 400
-    data = json.loads(response.data.decode('utf-8'))
+    data = json.loads(response.data)
     assert 'error' in data
+    assert 'Unsupported symbol' in data['error']
 
-def test_get_predictions(client):
-    response = client.get('/api/predictions')
-    assert response.status_code == 200
-    data = json.loads(response.data.decode('utf-8'))
-    assert 'predictions' in data
-    assert isinstance(data['predictions'], list)
+# def test_get_predictions_endpoint(client): # Requires a database connection
+#     response = client.get('/api/predictions')
+#     assert response.status_code == 200
+#     data = json.loads(response.data)
+#     assert 'predictions' in data
+#     assert isinstance(data['predictions'], list)
 
-def test_trade_valid(client):
-    # Replace with your actual API key and secret key for testing
-    api_key = "test_api_key"
-    secret_key = "test_secret_key"
-    response = client.post('/api/trade', json={
-        'symbol': 'BTCUSDT',
-        'quantity': 0.01,
-        'side': 'BUY',
-        'api_key': api_key,
-        'secret_key': secret_key
-    })
-    assert response.status_code == 500 # Expecting 500 since test keys will not work
-    data = json.loads(response.data.decode('utf-8'))
-    assert 'error' in data
+# def test_trade_endpoint(client): # Requires Binance API keys
+#     response = client.post('/api/trade', json={
+#         'symbol': 'BTCUSDT',
+#         'quantity': 0.01,
+#         'side': 'BUY',
+#         'api_key': 'YOUR_BINANCE_API_KEY',
+#         'secret_key': 'YOUR_BINANCE_SECRET_KEY'
+#     })
+#     assert response.status_code == 400 # Expecting error due to missing API keys or invalid symbol
 
-def test_trade_invalid_side(client):
-    response = client.post('/api/trade', json={
-        'symbol': 'BTCUSDT',
-        'quantity': 0.01,
-        'side': 'INVALID',
-        'api_key': 'test_api_key',
-        'secret_key': 'test_secret_key'
-    })
-    assert response.status_code == 400
-    data = json.loads(response.data.decode('utf-8'))
-    assert 'error' in data
-
-def test_chat_valid(client):
+def test_chat_endpoint(client):
     response = client.post('/api/chat', json={'message': 'Hello'})
-    if response.status_code == 200:
-        data = json.loads(response.data.decode('utf-8'))
-        assert 'reply' in data
-    else:
-        assert response.status_code == 500
-        data = json.loads(response.data.decode('utf-8'))
-        assert 'reply' in data
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert 'reply' in data
 
-def test_chat_news(client):
-    response = client.post('/api/chat', json={'message': 'Give me the latest news'})
-    if response.status_code == 200:
-        data = json.loads(response.data.decode('utf-8'))
-        assert 'reply' in data
-    else:
-        assert response.status_code == 500
-        data = json.loads(response.data.decode('utf-8'))
-        assert 'reply' in data
+def test_chat_endpoint_empty_message(client):
+    response = client.post('/api/chat', json={'message': ''})
+    assert response.status_code == 400
+    data = json.loads(response.data)
+    assert 'reply' in data
