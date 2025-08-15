@@ -93,23 +93,110 @@ class IRISTradingChatbot:
             return None, None
 
     def get_market_news(self, limit=3):
-        """Fetch latest crypto market news"""
+        """Fetch latest crypto market news via CoinDesk Data API (fallback from NewsAPI)."""
         try:
-            url = "https://newsapi.org/v2/everything"
+            # Prefer config-provided URL/API key; otherwise default to public CoinDesk endpoint
+            base_url = self.config.get(
+                "coindesk_news_url",
+                "https://data-api.coindesk.com/news/v1/article/list"
+            )
+            coindesk_api_key = self.config.get("coindesk_api_key")
+
+            # Constrain limit within API bounds
+            effective_limit = max(1, min(int(limit or 3), 10))
+
             params = {
-                "q": "cryptocurrency bitcoin ethereum",
-                "apiKey": self.newsapi_key,
-                "language": "en",
-                "sortBy": "publishedAt",
-                "pageSize": limit,
+                "lang": "EN",
+                "limit": effective_limit,
             }
-            response = requests.get(url, params=params, timeout=5)
+            if coindesk_api_key:
+                params["api_key"] = coindesk_api_key
+
+            response = requests.get(base_url, params=params, timeout=7)
             response.raise_for_status()
-            articles = response.json().get("articles", [])
-            return articles[:limit]
+            data = response.json()
+
+            # CoinDesk returns articles under "Data"
+            items = data.get("Data") or data.get("data") or []
+
+            normalized = []
+            for item in items[:effective_limit]:
+                title = item.get("TITLE") or item.get("title") or "Untitled"
+                url = item.get("URL") or item.get("url")
+                source_data = item.get("SOURCE_DATA") or {}
+                source_name = source_data.get("NAME") or source_data.get("name") or "CoinDesk"
+                normalized.append({
+                    "title": title,
+                    "url": url,
+                    # Keep shape compatible with existing renderer: article['source']['name']
+                    "source": {"name": source_name},
+                })
+
+            return normalized
         except Exception as e:
             print(f"Error fetching news: {e}")
             return []
+
+    def _summarize_news(self, articles):
+        """Return a single concise summary of the news list.
+        Tries OpenAI first; falls back to heuristic summarization.
+        """
+        try:
+            # Build a compact context from titles and sources
+            bullet_points = []
+            for a in articles:
+                title = a.get("title") or ""
+                source = (a.get("source") or {}).get("name") or ""
+                if title:
+                    bullet_points.append(f"- {title} ({source})")
+
+            if bullet_points and getattr(self, 'openai_client', None):
+                prompt = (
+                    "You are a crypto market editor. Summarize the following headlines into one brief, cohesive "
+                    "market wrap (2-3 sentences, no bullets, no markdown). Focus on what matters for traders: "
+                    "themes, risks, and opportunities.\n\n" + "\n".join(bullet_points)
+                )
+                try:
+                    completion = self.openai_client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": (
+                                    "You produce concise, trader-focused market wraps without hype."
+                                ),
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        max_tokens=140,
+                        temperature=0.2,
+                    )
+                    text = completion.choices[0].message.content.strip()
+                    if text:
+                        return text
+                except Exception:
+                    # Fall back if the model call fails
+                    pass
+
+            # Heuristic fallback: compress titles and add quick sentiment cue
+            titles = [a.get("title") for a in articles if a.get("title")]
+            joined = "; ".join(titles[:5])
+            polarity = 0.0
+            if joined:
+                try:
+                    polarity = TextBlob(joined).sentiment.polarity
+                except Exception:
+                    polarity = 0.0
+            sentiment = "mixed"
+            if polarity > 0.1:
+                sentiment = "slightly positive"
+            elif polarity < -0.1:
+                sentiment = "slightly negative"
+            if joined:
+                return f"Market wrap ({sentiment}): {joined}."
+            return "Market wrap: No notable headlines available right now."
+        except Exception:
+            return "Market wrap: Unable to summarize news at the moment."
 
     def classify_intent(self, message):
         """Classify user intent using NLP"""
@@ -222,26 +309,12 @@ class IRISTradingChatbot:
 
     def handle_news_inquiry(self):
         """Handle news-related queries"""
-        articles = self.get_market_news(3)
-        
+        articles = self.get_market_news(5)
         if not articles:
-            return {
-                "reply": "📰 Unable to fetch latest crypto news. Please try again later.",
-                "type": "news_error"
-            }
-        
-        response = "📰 **Latest Crypto News:**\n\n"
-        for i, article in enumerate(articles, 1):
-            title = article['title'][:80] + "..." if len(article['title']) > 80 else article['title']
-            source = article['source']['name']
-            response += f"{i}. {title} - *{source}*\n"
-        
-        response += "\n💡 Stay informed for better trading decisions!"
-        
-        return {
-            "reply": response,
-            "type": "news_response"
-        }
+            return {"reply": "📰 Market wrap: News feed unavailable right now.", "type": "news_error"}
+
+        summary = self._summarize_news(articles)
+        return {"reply": f"📰 {summary}", "type": "news_response"}
 
     def handle_trading_advice(self, message):
         """Handle trading advice queries with OpenAI"""
@@ -286,7 +359,7 @@ Rules:
             else:
                 response = ai_response
             
-            # Add brief disclaimer
+            # Add brief risk note
             response += "\n\n⚠️ Trade responsibly. Markets are volatile."
             
             return {
@@ -294,10 +367,50 @@ Rules:
                 "type": "trading_advice"
             }
             
-        except Exception as e:
+        except Exception:
+            # Fallback advice using simple heuristics
+            fallback_lines = []
+            if coin_id:
+                price, change_24h = self.get_live_price(coin_id)
+            else:
+                price, change_24h = None, None
+
+            if price:
+                fallback_lines.append(f"📊 Current {coin_symbol} ~ ${price:,.2f}{' (' + ('+' if change_24h and change_24h>0 else '') + f'{change_24h:.2f}%' + ')' if change_24h is not None else ''}")
+
+            if change_24h is not None:
+                if change_24h > 1:
+                    # Up-trend
+                    fallback_lines.extend([
+                        "• Trend: short-term bullish; consider scaling in on pullbacks.",
+                        "• Risk: set a tight stop below recent support; risk ≤1–2% per trade.",
+                        "• Confirm with volume and RSI before entry."
+                    ])
+                elif change_24h < -1:
+                    # Down-trend
+                    fallback_lines.extend([
+                        "• Trend: short-term bearish; avoid chasing dips.",
+                        "• Plan: wait for a base or use small DCA; if trading, use tight stops.",
+                        "• Watch key support/resistance for reversal signals."
+                    ])
+                else:
+                    # Range-bound
+                    fallback_lines.extend([
+                        "• Trend: range-bound; momentum unclear.",
+                        "• Plan: wait for breakout/confirmation; keep position size small.",
+                        "• Use bracket orders (stop + take-profit) to manage risk."
+                    ])
+            else:
+                # No change data
+                fallback_lines.extend([
+                    "• Data limited; consider waiting for clearer momentum.",
+                    "• If entering, use a tight stop and small size."
+                ])
+
+            fallback_lines.append("⚠️ Volatility can spike; adjust stops and size accordingly.")
             return {
-                "reply": "🤖 I'm having trouble accessing market analysis. Try asking about specific coin prices or market news.",
-                "type": "advice_error"
+                "reply": "\n".join(fallback_lines),
+                "type": "trading_advice"
             }
 
     def handle_prediction_request(self, message):
@@ -311,8 +424,9 @@ Rules:
             }
         
         try:
-            # Call internal prediction API (modify URL as needed)
-            prediction_url = f"{self.config.get('base_url', 'http://localhost:5000')}/api/predict"
+            # Call internal prediction API (prefer configured base_url, default to port 5001)
+            base_url = self.config.get('base_url') or 'http://localhost:5001'
+            prediction_url = f"{base_url}/api/predict"
             response = requests.post(
                 prediction_url,
                 json={"symbol": coin_symbol, "timeframe": "hourly"},
